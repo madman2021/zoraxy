@@ -175,7 +175,9 @@ func GetUptimeTargetsFromReverseProxyRules(dp *dynamicproxy.Router) []*uptime.Ta
 		for i, origin := range target.ActiveOrigins {
 			url := "http://" + origin.OriginIpOrDomain
 			protocol := "http"
-			if origin.RequireTLS {
+			if origin.UseH2C {
+				protocol = "h2c"
+			} else if origin.RequireTLS {
 				url = "https://" + origin.OriginIpOrDomain
 				protocol = "https"
 			}
@@ -192,6 +194,7 @@ func GetUptimeTargetsFromReverseProxyRules(dp *dynamicproxy.Router) []*uptime.Ta
 				Protocol:          protocol,
 				ProxyType:         uptime.ProxyType_Host,
 				SkipTlsValidation: origin.SkipCertValidations,
+				UseH2C:            origin.UseH2C,
 				HealthCheckURI:    target.UptimeMonitorURI,
 			})
 

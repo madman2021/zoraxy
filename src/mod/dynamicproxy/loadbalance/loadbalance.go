@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/sessions"
 	"imuslab.com/zoraxy/mod/dynamicproxy/dpcore"
+	"imuslab.com/zoraxy/mod/dynamicproxy/modh2c"
 	"imuslab.com/zoraxy/mod/geodb"
 	"imuslab.com/zoraxy/mod/info/logger"
 )
@@ -39,6 +40,7 @@ type Upstream struct {
 	//Upstream Proxy Configs
 	OriginIpOrDomain         string //Target IP address or domain name with port
 	RequireTLS               bool   //Require TLS connection
+	UseH2C                   bool   //Use HTTP/2 prior knowledge over a cleartext connection
 	SkipCertValidations      bool   //Set to true to accept self signed certs
 	SkipWebSocketOriginCheck bool   //Skip origin check on websocket upgrade connections
 
@@ -50,7 +52,8 @@ type Upstream struct {
 	RespTimeout int64 //Response header timeout in milliseconds
 
 	//currentConnectionCounts atomic.Uint64 //Counter for number of client currently connected
-	proxy *dpcore.ReverseProxy
+	proxy    *dpcore.ReverseProxy
+	h2cProxy *modh2c.Proxy
 }
 
 // Create a new load balancer

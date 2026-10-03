@@ -8,6 +8,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"imuslab.com/zoraxy/mod/dynamicproxy/loadbalance"
+	"imuslab.com/zoraxy/mod/dynamicproxy/modh2c"
 	"imuslab.com/zoraxy/mod/dynamicproxy/rewrite"
 )
 
@@ -239,6 +240,9 @@ func (ep *ProxyEndpoint) upstreamTLSServerName() string {
 
 // Add upstream to endpoint and update it to runtime
 func (ep *ProxyEndpoint) AddUpstreamOrigin(newOrigin *loadbalance.Upstream, activate bool) error {
+	if err := modh2c.ValidateConfiguration(newOrigin.OriginIpOrDomain, newOrigin.UseH2C, newOrigin.RequireTLS, ep.ForceHTTP11); err != nil {
+		return err
+	}
 	//Check if the upstream already exists
 	if ep.UpstreamOriginExists(newOrigin.OriginIpOrDomain) {
 		return errors.New("upstream with same origin already exists")

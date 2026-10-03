@@ -9,6 +9,7 @@ import (
 
 	"imuslab.com/zoraxy/mod/dynamicproxy/dpcore"
 	"imuslab.com/zoraxy/mod/dynamicproxy/exploits"
+	"imuslab.com/zoraxy/mod/dynamicproxy/modh2c"
 	"imuslab.com/zoraxy/mod/utils"
 )
 
@@ -21,6 +22,18 @@ import (
 
 // Prepare proxy route generate a proxy handler service object for your endpoint
 func (router *Router) PrepareProxyRoute(endpoint *ProxyEndpoint) (*ProxyEndpoint, error) {
+	// Validate both active and inactive upstreams before changing runtime state.
+	for _, origin := range endpoint.ActiveOrigins {
+		if err := modh2c.ValidateConfiguration(origin.OriginIpOrDomain, origin.UseH2C, origin.RequireTLS, endpoint.ForceHTTP11); err != nil {
+			return nil, err
+		}
+	}
+	for _, origin := range endpoint.InactiveOrigins {
+		if err := modh2c.ValidateConfiguration(origin.OriginIpOrDomain, origin.UseH2C, origin.RequireTLS, endpoint.ForceHTTP11); err != nil {
+			return nil, err
+		}
+	}
+
 	for _, thisOrigin := range endpoint.ActiveOrigins {
 		//Create the proxy routing handler
 		err := thisOrigin.StartProxy(endpoint.upstreamTLSServerName())

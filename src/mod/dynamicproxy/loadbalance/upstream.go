@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"imuslab.com/zoraxy/mod/dynamicproxy/dpcore"
+	"imuslab.com/zoraxy/mod/dynamicproxy/modh2c"
 )
 
 // StartProxy create and start a HTTP proxy using dpcore
@@ -17,6 +18,22 @@ import (
 // hostname used when connecting to a HTTPS upstream. Pass an empty string to derive
 // it from the upstream address.
 func (u *Upstream) StartProxy(tlsServerName string) error {
+	if err := modh2c.ValidateConfiguration(u.OriginIpOrDomain, u.UseH2C, u.RequireTLS, false); err != nil {
+		return err
+	}
+	if u.UseH2C {
+		proxy, err := modh2c.NewProxy(u.OriginIpOrDomain, modh2c.ProxyOptions{
+			MaxConcurrentConnections: u.MaxConn,
+			ResponseHeaderTimeout:    time.Duration(u.RespTimeout) * time.Millisecond,
+		})
+		if err != nil {
+			return err
+		}
+		u.proxy = nil
+		u.h2cProxy = proxy
+		return nil
+	}
+
 	//Filter the tailing slash if any
 	domain := u.OriginIpOrDomain
 	if len(domain) == 0 {
@@ -50,12 +67,16 @@ func (u *Upstream) StartProxy(tlsServerName string) error {
 	})
 
 	u.proxy = proxy
+	u.h2cProxy = nil
 	return nil
 }
 
 // IsReady return the proxy ready state of the upstream server
 // Return false if StartProxy() is not called on this upstream before
 func (u *Upstream) IsReady() bool {
+	if u.UseH2C {
+		return u.h2cProxy != nil
+	}
 	return u.proxy != nil
 }
 
@@ -69,12 +90,23 @@ func (u *Upstream) Clone() *Upstream {
 
 // ServeHTTP uses this upstream proxy router to route the current request, return the status code and error if any
 func (u *Upstream) ServeHTTP(w http.ResponseWriter, r *http.Request, rrr *dpcore.ResponseRewriteRuleSet) (int, error) {
+	if u.UseH2C {
+		return http.StatusInternalServerError, errors.New("h2c upstream must be served by ServeH2C")
+	}
 	//Auto rewrite to upstream origin if not set
 	if rrr.ProxyDomain == "" {
 		rrr.ProxyDomain = u.OriginIpOrDomain
 	}
 
 	return u.proxy.ServeHTTP(w, r, rrr)
+}
+
+// ServeH2C routes a request through the upstream's dedicated h2c proxy.
+func (u *Upstream) ServeH2C(w http.ResponseWriter, r *http.Request, options modh2c.RequestOptions) (int, error) {
+	if !u.UseH2C || u.h2cProxy == nil {
+		return http.StatusInternalServerError, errors.New("h2c upstream is not ready")
+	}
+	return u.h2cProxy.ServeHTTP(w, r, options)
 }
 
 // String return the string representations of endpoints in this upstream

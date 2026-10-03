@@ -13,6 +13,7 @@ import (
 
 	"imuslab.com/zoraxy/mod/dynamicproxy/dpcore"
 	"imuslab.com/zoraxy/mod/dynamicproxy/loadbalance"
+	"imuslab.com/zoraxy/mod/dynamicproxy/modh2c"
 	"imuslab.com/zoraxy/mod/dynamicproxy/rewrite"
 	"imuslab.com/zoraxy/mod/statistic"
 	"imuslab.com/zoraxy/mod/websocketproxy"
@@ -203,26 +204,44 @@ func (h *ProxyHandler) hostRequest(w http.ResponseWriter, r *http.Request, targe
 		PermissionPolicy:             headerRewriteOptions.PermissionPolicy,
 	})
 
-	//Handle the request reverse proxy
-	statusCode, err := selectedUpstream.ServeHTTP(w, r, &dpcore.ResponseRewriteRuleSet{
-		ProxyDomain:                    selectedUpstream.OriginIpOrDomain,
-		OriginalHost:                   reqHostname,
-		UseTLS:                         selectedUpstream.RequireTLS,
-		NoCache:                        h.Parent.Option.NoCache,
-		PathPrefix:                     "",
-		UpstreamHeaders:                upstreamHeaders,
-		DownstreamHeaders:              downstreamHeaders,
-		DisableChunkedTransferEncoding: target.DisableChunkedTransferEncoding,
-		ForceHTTP11:                    target.ForceHTTP11,
-		NoRemoveUserAgentHeader:        headerRewriteOptions.DisableUserAgentHeaderRemoval,
-		HostHeaderOverwrite:            headerRewriteOptions.RequestHostOverwrite,
-		NoRemoveHopByHop:               headerRewriteOptions.DisableHopByHopHeaderRemoval,
-		AllowConnect:                   target.EnableConnectSupport,
-		AllowUpgrade:                   target.EnableUpgradeForwarding,
-		Version:                        target.parent.Option.HostVersion,
-		DevelopmentMode:                target.parent.Option.DevelopmentMode,
-		AltSvc:                         h.Parent.getAltSvcValue(),
-	})
+	// H2C has a dedicated proxy module because its connection semantics differ
+	// from dpcore's HTTP/1.1-compatible path.
+	forwardType := "host-http"
+	statusCode := 0
+	if selectedUpstream.UseH2C {
+		forwardType = "host-h2c"
+		statusCode, err = selectedUpstream.ServeH2C(w, r, modh2c.RequestOptions{
+			OriginalHost:          reqHostname,
+			HostHeaderOverwrite:   headerRewriteOptions.RequestHostOverwrite,
+			UpstreamHeaders:       upstreamHeaders,
+			DownstreamHeaders:     downstreamHeaders,
+			NoCache:               h.Parent.Option.NoCache,
+			KeepResponseUserAgent: headerRewriteOptions.DisableUserAgentHeaderRemoval,
+			Version:               target.parent.Option.HostVersion,
+			DevelopmentMode:       target.parent.Option.DevelopmentMode,
+			AltSvc:                h.Parent.getAltSvcValue(),
+		})
+	} else {
+		statusCode, err = selectedUpstream.ServeHTTP(w, r, &dpcore.ResponseRewriteRuleSet{
+			ProxyDomain:                    selectedUpstream.OriginIpOrDomain,
+			OriginalHost:                   reqHostname,
+			UseTLS:                         selectedUpstream.RequireTLS,
+			NoCache:                        h.Parent.Option.NoCache,
+			PathPrefix:                     "",
+			UpstreamHeaders:                upstreamHeaders,
+			DownstreamHeaders:              downstreamHeaders,
+			DisableChunkedTransferEncoding: target.DisableChunkedTransferEncoding,
+			ForceHTTP11:                    target.ForceHTTP11,
+			NoRemoveUserAgentHeader:        headerRewriteOptions.DisableUserAgentHeaderRemoval,
+			HostHeaderOverwrite:            headerRewriteOptions.RequestHostOverwrite,
+			NoRemoveHopByHop:               headerRewriteOptions.DisableHopByHopHeaderRemoval,
+			AllowConnect:                   target.EnableConnectSupport,
+			AllowUpgrade:                   target.EnableUpgradeForwarding,
+			Version:                        target.parent.Option.HostVersion,
+			DevelopmentMode:                target.parent.Option.DevelopmentMode,
+			AltSvc:                         h.Parent.getAltSvcValue(),
+		})
+	}
 
 	//validate the error
 	var dnsError *net.DNSError
@@ -230,22 +249,27 @@ func (h *ProxyHandler) hostRequest(w http.ResponseWriter, r *http.Request, targe
 	if err != nil {
 		if errors.As(err, &dnsError) {
 			serveProxyRequestError(w, 404, h.Parent, ErrorTemplateHostError)
-			h.Parent.logRequest(r, false, 404, "host-http", reqHostname, upstreamHostname, target)
+			h.Parent.logRequest(r, false, 404, forwardType, reqHostname, upstreamHostname, target)
 		} else if errors.Is(err, context.Canceled) {
 			//Request canceled by client, usually due to manual refresh before page load
 			http.Error(w, "Request canceled", http.StatusRequestTimeout)
-			h.Parent.logRequest(r, false, http.StatusRequestTimeout, "host-http", reqHostname, upstreamHostname, target)
+			h.Parent.logRequest(r, false, http.StatusRequestTimeout, forwardType, reqHostname, upstreamHostname, target)
 		} else {
 			serveProxyRequestError(w, 521, h.Parent, ErrorTemplateRPError)
-			h.Parent.logRequest(r, false, 521, "host-http", reqHostname, upstreamHostname, target)
+			h.Parent.logRequest(r, false, 521, forwardType, reqHostname, upstreamHostname, target)
 		}
 	}
 
-	h.Parent.logRequest(r, true, statusCode, "host-http", reqHostname, upstreamHostname, target)
+	h.Parent.logRequest(r, true, statusCode, forwardType, reqHostname, upstreamHostname, target)
 }
 
 // hostWebSocketRequest proxies a host level WebSocket upgrade request via websocketproxy
 func (h *ProxyHandler) hostWebSocketRequest(w http.ResponseWriter, r *http.Request, target *ProxyEndpoint, selectedUpstream *loadbalance.Upstream) {
+	if selectedUpstream.UseH2C {
+		http.Error(w, "WebSocket upgrades are not supported by an h2c upstream", http.StatusBadRequest)
+		h.Parent.logRequest(r, false, http.StatusBadRequest, "host-h2c", r.Host, selectedUpstream.OriginIpOrDomain, target)
+		return
+	}
 	if target.DisableWebSocket {
 		http.Error(w, "WebSocket connections are disabled for this endpoint", http.StatusForbidden)
 		return
