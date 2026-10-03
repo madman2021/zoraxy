@@ -230,6 +230,14 @@ func RegisterStreamProxyAPIs(authRouter *auth.RouterDef) {
 	authRouter.HandleFunc("/api/streamprox/config/status", streamProxyManager.HandleGetProxyStatus)
 }
 
+// Register the independent domain-level h2c service management APIs.
+func RegisterH2CProxyAPIs(authRouter *auth.RouterDef) {
+	authRouter.HandleFunc("/api/h2cproxy/list", h2cProxyManager.HandleList)
+	authRouter.HandleFunc("/api/h2cproxy/save", h2cProxyManager.HandleSave)
+	authRouter.HandleFunc("/api/h2cproxy/enabled", h2cProxyManager.HandleEnabled)
+	authRouter.HandleFunc("/api/h2cproxy/delete", h2cProxyManager.HandleDelete)
+}
+
 // Register the APIs for mDNS service management functions
 func RegisterMDNSAPIs(authRouter *auth.RouterDef) {
 	authRouter.HandleFunc("/api/mdns/list", HandleMdnsListing)
@@ -435,6 +443,7 @@ func initAPIs(targetMux *http.ServeMux) {
 	RegisterPathRuleAPIs(authRouter)
 	RegisterStatisticalAPIs(authRouter)
 	RegisterStreamProxyAPIs(authRouter)
+	RegisterH2CProxyAPIs(authRouter)
 	RegisterMDNSAPIs(authRouter)
 	RegisterNetworkUtilsAPIs(authRouter)
 	RegisterACMEAndAutoRenewerAPIs(authRouter)

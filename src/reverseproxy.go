@@ -247,6 +247,10 @@ func ReverseProxyInit() {
 	}
 
 	dynamicProxyRouter = dprouter
+	// Register independent protocol handlers before the public listener starts.
+	if err := registerH2CProxyRouting(dprouter); err != nil {
+		panic(err)
+	}
 	// Signal that the router is ready
 	select {
 	case dynamicProxyRouterReady <- true:

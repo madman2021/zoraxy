@@ -27,6 +27,7 @@ import (
 	"imuslab.com/zoraxy/mod/dynamicproxy/redirection"
 	"imuslab.com/zoraxy/mod/forwardproxy"
 	"imuslab.com/zoraxy/mod/geodb"
+	"imuslab.com/zoraxy/mod/h2cproxy"
 	"imuslab.com/zoraxy/mod/info/hardwareinfo"
 	"imuslab.com/zoraxy/mod/info/logger"
 	"imuslab.com/zoraxy/mod/info/logviewer"
@@ -320,6 +321,16 @@ func startupSequence() {
 		panic(err)
 	}
 
+	//Create the independent domain-level h2c proxy manager.
+	h2cProxyManager, err = h2cproxy.NewManager(h2cproxy.Options{
+		ConfigStore:      CONF_H2C_PROXY,
+		AccessController: accessController,
+		Logger:           SystemWideLogger,
+	})
+	if err != nil {
+		panic(err)
+	}
+
 	//Create WoL MAC storage table
 	sysdb.NewTable("wolmac")
 
@@ -444,12 +455,15 @@ func finalSequence() {
 	registerBuildInRoutingRules()
 
 	//Set the host specific TLS behavior resolver for resolving TLS behavior for each hostname
-	tlsCertManager.SetHostSpecificTlsBehavior(dynamicProxyRouter.ResolveHostSpecificTlsBehaviorForHostname)
+	tlsCertManager.SetHostSpecificTlsBehavior(resolveProxyTLSBehavior)
 }
 
 /* Shutdown Sequence */
 func ShutdownSeq() {
 	SystemWideLogger.Println("Shutting down " + SYSTEM_NAME)
+	if h2cProxyManager != nil {
+		h2cProxyManager.Close()
+	}
 	SystemWideLogger.Println("Closing Netstats Listener")
 	if netstatBuffers != nil {
 		netstatBuffers.Close()

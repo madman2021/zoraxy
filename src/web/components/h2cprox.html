@@ -1,0 +1,151 @@
+<div class="standardContainer">
+    <div class="ui basic segment">
+        <h2>H2C Proxy</h2>
+        <p>Forward an entire subdomain to a cleartext HTTP/2 backend, such as a gRPC service.</p>
+        <div class="ui info message">
+            Uses Zoraxy's public listening port and certificate store. For native gRPC clients,
+            enable TLS and HTTP/2 in General Settings and install a certificate for the domain.
+            The connection from Zoraxy to the backend is unencrypted HTTP/2.
+        </div>
+        <p>Each configured domain belongs to H2C Proxy and takes precedence over matching HTTP Proxy
+            rules, including wildcards. HTTP Proxy authentication, virtual directories, plugins and
+            header rewrites do not apply. Select an access rule here and configure authentication in
+            your backend. WebSocket upgrades and CONNECT tunnels are unsupported.</p>
+    </div>
+    <div class="ui divider"></div>
+    <div class="ui basic segment">
+        <h3>H2C Services</h3>
+        <p>Stopped services return HTTP 503 and retain their domains. Stopping, editing or deleting
+            a service disconnects its active streams.</p>
+        <div style="overflow-x:auto;">
+            <table class="ui basic celled table" id="h2cServiceTable">
+                <thead><tr><th>Domain</th><th>Backend</th><th>State</th><th>Access Rule</th><th>Actions</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <button type="button" class="ui basic button" id="h2cRefresh">Refresh</button>
+    </div>
+    <div class="ui divider"></div>
+    <div class="ui basic segment">
+        <h3 id="h2cFormTitle">Create H2C Service</h3>
+        <form class="ui form" id="h2cServiceForm">
+            <input type="hidden" name="ID">
+            <div class="field">
+                <label>Domain</label>
+                <input name="Domain" required placeholder="grpc.example.com" maxlength="253">
+                <small>Exact hostname only, without a scheme, port or wildcard.</small>
+            </div>
+            <div class="field">
+                <label>H2C Backend</label>
+                <input name="Target" required placeholder="collector:4317">
+                <small>Host and port. All requests for this domain use this h2c backend.</small>
+            </div>
+            <div class="field">
+                <label>Access Rule</label>
+                <select name="AccessRuleID"><option value="default">Default</option></select>
+                <small>If the selected access rule is deleted, requests are denied until another rule is selected.</small>
+            </div>
+            <div class="field">
+                <label>Backend Host Override (optional)</label>
+                <input name="HostOverride" placeholder="Leave empty to preserve the client's hostname">
+            </div>
+            <div class="field">
+                <label>Response Header Timeout (seconds)</label>
+                <input name="ResponseHeaderTimeoutSeconds" type="number" min="0" max="86400" value="0" required>
+                <small>0 means no header timeout. This does not limit the duration of an established stream.</small>
+            </div>
+            <div class="field"><label><input name="Enabled" type="checkbox" checked> Start service</label></div>
+            <div class="field"><label><input name="EnableLogging" type="checkbox" checked> Enable request logging</label></div>
+            <button class="ui basic green button" type="submit">Save</button>
+            <button class="ui basic button" type="button" id="h2cCancel">Cancel edit</button>
+        </form>
+    </div>
+</div>
+<script>
+(() => {
+    const form = document.getElementById("h2cServiceForm");
+    const field = name => form.elements.namedItem(name);
+    const tbody = $("#h2cServiceTable tbody");
+    function resetForm() {
+        form.reset();
+        field("ID").value = "";
+        $("#h2cFormTitle").text("Create H2C Service");
+    }
+    function mutate(action, payload, success) {
+        $.cjax({
+            url: "/api/h2cproxy/" + action,
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify(payload),
+            success: data => {
+                if (data.error) { msgbox(data.error, false); return; }
+                if (success) { success(data); }
+                refresh();
+            },
+            error: () => msgbox("Unable to update H2C service", false)
+        });
+    }
+    function edit(config) {
+        Object.keys(config).forEach(name => {
+            const input = field(name);
+            if (!input) { return; }
+            if (input.type === "checkbox") { input.checked = config[name]; }
+            else { input.value = config[name]; }
+        });
+        $("#h2cFormTitle").text("Edit H2C Service");
+        form.scrollIntoView({behavior: "smooth", block: "start"});
+    }
+    function refresh() {
+        $.getJSON("/api/h2cproxy/list").done(configs => {
+            if (configs.error) { msgbox(configs.error, false); return; }
+            tbody.empty();
+            configs.forEach(config => {
+                const row = $("<tr>");
+                [config.Domain, config.Target, config.Enabled ? "Started" : "Stopped", config.AccessRuleID]
+                    .forEach(value => row.append($("<td>").text(value)));
+                const actions = $("<td>");
+                $("<button type='button' class='ui basic mini button'>").text("Edit")
+                    .on("click", () => edit(config)).appendTo(actions);
+                $("<button type='button' class='ui basic mini button'>").text(config.Enabled ? "Stop" : "Start")
+                    .on("click", () => mutate("enabled", {ID: config.ID, Enabled: !config.Enabled})).appendTo(actions);
+                $("<button type='button' class='ui basic mini red button'>").text("Delete")
+                    .on("click", () => {
+                        if (confirm("Delete H2C service for " + config.Domain + "? This releases the domain to other routing rules.")) {
+                            mutate("delete", {ID: config.ID}, () => {
+                                if (field("ID").value === config.ID) { resetForm(); }
+                            });
+                        }
+                    }).appendTo(actions);
+                row.append(actions).appendTo(tbody);
+            });
+            if (!configs.length) {
+                tbody.append($("<tr>").append($("<td colspan='5'>").text("No H2C services configured.")));
+            }
+        }).fail(() => msgbox("Unable to load H2C services", false));
+    }
+    function loadAccessRules() {
+        $.getJSON("/api/access/list").done(rules => {
+            if (!Array.isArray(rules)) { return; }
+            const selected = field("AccessRuleID").value || "default";
+            $(field("AccessRuleID")).empty();
+            rules.forEach(rule => $("<option>").val(rule.ID).text(rule.Name).appendTo(field("AccessRuleID")));
+            field("AccessRuleID").value = selected;
+        });
+    }
+    form.addEventListener("submit", event => {
+        event.preventDefault();
+        const payload = {};
+        ["ID", "Domain", "Target", "AccessRuleID", "HostOverride"].forEach(name => payload[name] = field(name).value.trim());
+        if (!payload.AccessRuleID) { msgbox("Select an access rule", false); return; }
+        payload.Enabled = field("Enabled").checked;
+        payload.EnableLogging = field("EnableLogging").checked;
+        payload.ResponseHeaderTimeoutSeconds = Number(field("ResponseHeaderTimeoutSeconds").value);
+        mutate("save", payload, () => { resetForm(); msgbox("H2C service saved"); });
+    });
+    $("#h2cRefresh").on("click", refresh);
+    $("#h2cCancel").on("click", resetForm);
+    tabSwitchEventBind["h2cproxy"] = () => { refresh(); loadAccessRules(); };
+    refresh();
+    loadAccessRules();
+})();
+</script>

@@ -26,6 +26,7 @@ import (
 	"imuslab.com/zoraxy/mod/dynamicproxy/redirection"
 	"imuslab.com/zoraxy/mod/forwardproxy"
 	"imuslab.com/zoraxy/mod/geodb"
+	"imuslab.com/zoraxy/mod/h2cproxy"
 	"imuslab.com/zoraxy/mod/info/logger"
 	"imuslab.com/zoraxy/mod/info/logviewer"
 	"imuslab.com/zoraxy/mod/mdns"
@@ -133,6 +134,7 @@ var (
 	CONF_FOLDER                string //Configuration folder path
 	CONF_HTTP_PROXY            string //HTTP proxy configuration path
 	CONF_STREAM_PROXY          string //Stream proxy configuration path
+	CONF_H2C_PROXY             string //H2C proxy configuration path
 	CONF_CERT_STORE            string //Certificate store path
 	CONF_REDIRECTION           string //Redirection configuration path
 	CONF_ACCESS_RULE           string //Access rule configuration path
@@ -171,6 +173,7 @@ var (
 	mdnsScanner        *mdns.MDNSHost            //mDNS discovery services
 	webSshManager      *sshprox.Manager          //Web SSH connection service
 	streamProxyManager *streamproxy.Manager      //Stream Proxy Manager for TCP / UDP forwarding
+	h2cProxyManager    *h2cproxy.Manager         //Domain-level h2c services
 	acmeHandler        *acme.ACMEHandler         //Handler for ACME Certificate renew
 	acmeAutoRenewer    *acme.AutoRenewer         //Handler for ACME auto renew ticking
 	staticWebServer    *webserv.WebServer        //Static web server for hosting simple stuffs
