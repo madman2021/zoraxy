@@ -102,7 +102,7 @@ func (ep *ProxyEndpoint) GetVirtualDirectoryRuleByMatchingPath(matchingPath stri
 // whether a bulk apply/remove may treat an existing directory as "ours" (safe to skip or remove)
 // or as a user-customized one that must be left untouched.
 func (vdir *VirtualDirectoryEndpoint) HasSameTarget(domain string, requireTLS bool, skipCertValidations bool) bool {
-	return vdir.Domain == domain && vdir.RequireTLS == requireTLS && vdir.SkipCertValidations == skipCertValidations
+	return (vdir.UpstreamProtocol == "" || vdir.UpstreamProtocol == "http") && vdir.Domain == domain && vdir.RequireTLS == requireTLS && vdir.SkipCertValidations == skipCertValidations
 }
 
 // BulkVdirAction describes what a bulk virtual-directory apply/remove operation should do for one host.
@@ -153,6 +153,9 @@ func (ep *ProxyEndpoint) RemoveVirtualDirectoryRuleByMatchingPath(matchingPath s
 	for _, vdir := range ep.VirtualDirectories {
 		if vdir.MatchingPath == matchingPath {
 			entryFound = true
+			if vdir.parent == ep {
+				ep.parent.h2c.Remove(ep.h2cScope(), "vdir:"+matchingPath)
+			}
 		} else {
 			newVirtualDirectoryList = append(newVirtualDirectoryList, vdir)
 		}
@@ -173,6 +176,7 @@ func (ep *ProxyEndpoint) AddVirtualDirectoryRule(vdir *VirtualDirectoryEndpoint)
 		return nil, errors.New("rule with same matching path already exists")
 	}
 
+	ep = ep.CloneWithParent()
 	//Append it to the list of virtual directory
 	ep.VirtualDirectories = append(ep.VirtualDirectories, vdir)
 
@@ -185,10 +189,14 @@ func (ep *ProxyEndpoint) AddVirtualDirectoryRule(vdir *VirtualDirectoryEndpoint)
 
 	switch ep.ProxyType {
 	case ProxyTypeRoot:
+		if err := parentRouter.ConfigureH2C(readyRoutingRule); err != nil {
+			return nil, err
+		}
 		parentRouter.Root = readyRoutingRule
 	case ProxyTypeHost:
-		ep.Remove()
-		parentRouter.AddProxyRouteToRuntime(readyRoutingRule)
+		if err := parentRouter.AddProxyRouteToRuntime(readyRoutingRule); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, errors.New("unsupported proxy type")
 	}
@@ -239,6 +247,9 @@ func (ep *ProxyEndpoint) upstreamTLSServerName() string {
 
 // Add upstream to endpoint and update it to runtime
 func (ep *ProxyEndpoint) AddUpstreamOrigin(newOrigin *loadbalance.Upstream, activate bool) error {
+	if err := validateUpstreamProtocol(ep.UpstreamProtocol, newOrigin.OriginIpOrDomain, newOrigin.RequireTLS); err != nil {
+		return err
+	}
 	//Check if the upstream already exists
 	if ep.UpstreamOriginExists(newOrigin.OriginIpOrDomain) {
 		return errors.New("upstream with same origin already exists")
@@ -246,9 +257,10 @@ func (ep *ProxyEndpoint) AddUpstreamOrigin(newOrigin *loadbalance.Upstream, acti
 
 	if activate {
 		//Add it to the active origin list
-		err := newOrigin.StartProxy(ep.upstreamTLSServerName())
-		if err != nil {
-			return err
+		if ep.UpstreamProtocol != "h2c" {
+			if err := newOrigin.StartProxy(ep.upstreamTLSServerName()); err != nil {
+				return err
+			}
 		}
 		ep.ActiveOrigins = append(ep.ActiveOrigins, newOrigin)
 	} else {
@@ -257,7 +269,7 @@ func (ep *ProxyEndpoint) AddUpstreamOrigin(newOrigin *loadbalance.Upstream, acti
 	}
 
 	ep.UpdateToRuntime()
-	return nil
+	return ep.parent.ConfigureH2C(ep)
 }
 
 // Remove upstream from endpoint and update it to runtime
@@ -285,6 +297,7 @@ func (ep *ProxyEndpoint) RemoveUpstreamOrigin(originIpOrDomain string) error {
 		}
 	}
 	//Ok, set the origin list to the new one
+	ep.parent.h2c.Remove(ep.h2cScope(), "origin:"+originIpOrDomain)
 	ep.ActiveOrigins = newActiveOriginList
 	ep.InactiveOrigins = newInactiveOriginList
 	ep.UpdateToRuntime()
@@ -327,6 +340,7 @@ func (ep *ProxyEndpoint) Clone() *ProxyEndpoint {
 // Remove this proxy endpoint from running proxy endpoint list
 func (ep *ProxyEndpoint) Remove() error {
 	lookupHostname := strings.ToLower(ep.RootOrMatchingDomain)
+	_ = ep.parent.h2c.Configure(ep.h2cScope(), nil)
 	ep.parent.ProxyEndpoints.Delete(lookupHostname)
 	return nil
 }
@@ -337,9 +351,16 @@ func (ep *ProxyEndpoint) IsEnabled() bool {
 }
 
 // Write changes to runtime without respawning the proxy handler
-// use prepare -> remove -> add if you change anything in the endpoint
+// use prepare -> add if you change anything in the endpoint
 // that effects the proxy routing src / dest
 func (ep *ProxyEndpoint) UpdateToRuntime() {
 	lookupHostname := strings.ToLower(ep.RootOrMatchingDomain)
 	ep.parent.ProxyEndpoints.Store(lookupHostname, ep)
+}
+
+// CloneWithParent creates a draft while retaining its owning router.
+func (ep *ProxyEndpoint) CloneWithParent() *ProxyEndpoint {
+	draft := ep.Clone()
+	draft.parent = ep.parent
+	return draft
 }

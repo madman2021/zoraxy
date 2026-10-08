@@ -178,17 +178,41 @@ func ReverseProxyUpstreamUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//Replace the old upstream with the new one
-	err = targetEndpoint.RemoveUpstreamOrigin(originIP)
+	// Prepare the complete replacement before retiring the live upstream.
+	draft := targetEndpoint.Clone()
+	active := draft.ActiveOrigins[:0]
+	for _, origin := range draft.ActiveOrigins {
+		if origin.OriginIpOrDomain != originIP {
+			active = append(active, origin)
+		}
+	}
+	draft.ActiveOrigins = active
+	inactive := draft.InactiveOrigins[:0]
+	for _, origin := range draft.InactiveOrigins {
+		if origin.OriginIpOrDomain != originIP {
+			inactive = append(inactive, origin)
+		}
+	}
+	draft.InactiveOrigins = inactive
+	if draft.UpstreamOriginExists(newUpstream.OriginIpOrDomain) {
+		utils.SendErrorResponse(w, "upstream with same origin already exists")
+		return
+	}
+	if isActive {
+		draft.ActiveOrigins = append(draft.ActiveOrigins, newUpstream)
+	} else {
+		draft.InactiveOrigins = append(draft.InactiveOrigins, newUpstream)
+	}
+	replacement, err := dynamicProxyRouter.PrepareProxyRoute(draft)
 	if err != nil {
 		utils.SendErrorResponse(w, err.Error())
 		return
 	}
-	err = targetEndpoint.AddUpstreamOrigin(newUpstream, isActive)
-	if err != nil {
+	if err := dynamicProxyRouter.AddProxyRouteToRuntime(replacement); err != nil {
 		utils.SendErrorResponse(w, err.Error())
 		return
 	}
+	targetEndpoint = replacement
 
 	//Save changes to configs
 	err = SaveReverseProxyConfig(targetEndpoint)

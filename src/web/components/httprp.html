@@ -395,6 +395,14 @@
                                     <small>Enable stick session on load balancing</small></label>
                             </div>
                             
+                            <div class="field">
+                                <label>Upstream protocol (all origins)</label>
+                                <select class="UpstreamProtocol">
+                                    <option value="http">HTTP / HTTPS</option>
+                                    <option value="h2c">H2C (cleartext HTTP/2, including gRPC)</option>
+                                </select>
+                                <small>H2C requires cleartext upstreams and does not support WebSocket, CONNECT or HTTP/1.1 options. Client-facing HTTPS and certificates are unchanged. Virtual directories choose their protocol separately.</small>
+                            </div>
                             <!-- Compatibility Settings -->
                             <div class="ui divider"></div>
                             <h4 style="margin-top: 0px;">Compatibility</h4>
@@ -1200,6 +1208,7 @@
                 "rate" :requireRateLimit,
                 "dChunkedEnc": disableChunkedTransferEncoding,
                 "forceHTTP11": forceHTTP11,
+                "upstreamProtocol": $(editor).find(".UpstreamProtocol").val(),
                 "disableWebSocket": disableWebSocket,
                 "websocketTimeout": websocketTimeout,
                 "enableTimeoutRefreshOnActivity": enableTimeoutRefreshOnActivity,
@@ -1859,6 +1868,10 @@
             saveProxyInlineEdit(uuid);
         });
 
+        editor.find(".UpstreamProtocol").val(subd.UpstreamProtocol || "http");
+        editor.find(".UpstreamProtocol").off("change").on("change", function() {
+            saveProxyInlineEdit(uuid);
+        });
         editor.find(".ForceHTTP11").off("change");
         editor.find(".ForceHTTP11").prop("checked", subd.ForceHTTP11);
         editor.find(".ForceHTTP11").on("change", function() {

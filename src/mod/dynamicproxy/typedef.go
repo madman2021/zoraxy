@@ -29,6 +29,7 @@ import (
 	"imuslab.com/zoraxy/mod/dynamicproxy/redirection"
 	"imuslab.com/zoraxy/mod/dynamicproxy/rewrite"
 	"imuslab.com/zoraxy/mod/geodb"
+	"imuslab.com/zoraxy/mod/h2cproxy"
 	"imuslab.com/zoraxy/mod/info/logger"
 	"imuslab.com/zoraxy/mod/plugins"
 	"imuslab.com/zoraxy/mod/statistic"
@@ -104,6 +105,7 @@ type Router struct {
 	Root           *ProxyEndpoint //Root proxy endpoint, default site
 
 	/* Internals */
+	h2c          h2cproxy.Manager           // Dedicated cleartext HTTP/2 upstream pools
 	mux          http.Handler              //HTTP handler
 	server       *http.Server              //HTTP server
 	loadBalancer *loadbalance.RouteManager //Load balancer routing manager
@@ -173,6 +175,7 @@ type ZorxAuthExceptionRule struct {
 // A Virtual Directory endpoint, provide a subset of ProxyEndpoint for better
 // program structure than directly using ProxyEndpoint
 type VirtualDirectoryEndpoint struct {
+	UpstreamProtocol    string               // Empty/http uses the ordinary proxy; h2c uses cleartext HTTP/2.
 	MatchingPath        string               //Matching prefix of the request path, also act as key
 	Domain              string               //Domain or IP to proxy to
 	RequireTLS          bool                 //Target domain require TLS
@@ -245,6 +248,7 @@ const (
 
 // A proxy endpoint record, a general interface for handling inbound routing
 type ProxyEndpoint struct {
+	UpstreamProtocol     string                  // Applies to all host origins; vdirs select independently.
 	ProxyType            ProxyType               //The type of this proxy, see const def
 	RootOrMatchingDomain string                  //Matching domain for host, also act as key
 	MatchingDomainAlias  []string                //A list of domains that alias to this rule

@@ -168,6 +168,12 @@ func (h *ProxyHandler) hostRequest(w http.ResponseWriter, r *http.Request, targe
 		return
 	}
 
+	// H2C must reach its configured upstream, before HTTP loopback or upgrades.
+	if target.UpstreamProtocol == "h2c" {
+		h.h2cRequest(w, r, target, "origin:"+selectedUpstream.OriginIpOrDomain, selectedUpstream.OriginIpOrDomain, "")
+		return
+	}
+
 	/* Upstream Host Swap (use to detect loopback to self) */
 	if h.upstreamHostSwap(w, r, selectedUpstream, target) {
 		//Request handled by the loopback handler
@@ -290,6 +296,11 @@ func (h *ProxyHandler) vdirRequest(w http.ResponseWriter, r *http.Request, targe
 	r.URL, _ = url.Parse(rewriteURL)
 	r.Header.Set("X-Forwarded-Host", r.Host)
 	r.Header.Set("X-Forwarded-Server", "zoraxy-"+h.Parent.Option.HostUUID)
+
+	if target.UpstreamProtocol == "h2c" {
+		h.h2cRequest(w, r, target.parent, "vdir:"+target.MatchingPath, target.Domain, target.MatchingPath)
+		return
+	}
 
 	if isWebSocketRequest(r) {
 		if target.parent.DisableWebSocket {

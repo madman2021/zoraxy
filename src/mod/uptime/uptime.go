@@ -99,7 +99,7 @@ func (m *Monitor) masterPingTargets() {
 // pingTargets pings a list of targets with a given timeout and whether to log the results in the online status log
 func (m *Monitor) pingTargets(timeout time.Duration, targets []*Target, requireOnlineStatusLog bool) {
 	for _, target := range targets {
-		if target.Protocol != "http" && target.Protocol != "https" {
+		if target.Protocol != "http" && target.Protocol != "https" && target.Protocol != "h2c" {
 			m.Config.Logger.PrintAndLog(LOG_MODULE_NAME, "Unknown protocol: "+target.Protocol, errors.New("unsupported protocol"))
 			continue
 		}
@@ -346,7 +346,7 @@ func (m *Monitor) HandleUptimeLogRead(w http.ResponseWriter, r *http.Request) {
 func (m *Monitor) getWebsiteStatusWithLatency(target *Target, timeout time.Duration) (bool, int64, int) {
 	start := time.Now().UnixNano() / int64(time.Millisecond)
 	checkURL := buildHealthCheckURL(target.URL, target.HealthCheckURI)
-	statusCode, err := m.getWebsiteStatus(checkURL, target.SkipTlsValidation, timeout)
+	statusCode, err := m.getWebsiteStatus(checkURL, target.SkipTlsValidation, timeout, target.Protocol)
 	end := time.Now().UnixNano() / int64(time.Millisecond)
 	if err != nil {
 		if m.Config.Verbal {
@@ -384,7 +384,7 @@ func (m *Monitor) getWebsiteStatusWithLatency(target *Target, timeout time.Durat
 
 }
 
-func (m *Monitor) getWebsiteStatus(url string, skipTLSVerification bool, timeout time.Duration) (int, error) {
+func (m *Monitor) getWebsiteStatus(url string, skipTLSVerification bool, timeout time.Duration, protocols ...string) (int, error) {
 	// Create a one-time use cookie jar to store cookies
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
@@ -397,6 +397,12 @@ func (m *Monitor) getWebsiteStatus(url string, skipTLSVerification bool, timeout
 		DisableKeepAlives: true,
 		IdleConnTimeout:   15 * time.Second,
 	}
+	h2c := len(protocols) > 0 && protocols[0] == "h2c"
+	if h2c {
+		transport.Protocols = new(http.Protocols)
+		transport.Protocols.SetUnencryptedHTTP2(true)
+	}
+	defer transport.CloseIdleConnections()
 	if skipTLSVerification {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		transport.DialTLS = func(network, addr string) (net.Conn, error) {
@@ -417,6 +423,9 @@ func (m *Monitor) getWebsiteStatus(url string, skipTLSVerification bool, timeout
 
 	resp, err := client.Do(req)
 	if err != nil {
+		if h2c {
+			return 0, err
+		}
 		//Try replace the http with https and vise versa
 		rewriteURL := ""
 		if strings.Contains(url, "https://") {

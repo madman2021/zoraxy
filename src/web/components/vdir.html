@@ -68,6 +68,14 @@
                         </div>
                     </div>
 
+                    <div class="field">
+                        <label>Upstream protocol</label>
+                        <select id="vdUpstreamProtocol">
+                            <option value="http">HTTP / HTTPS</option>
+                            <option value="h2c">H2C (cleartext HTTP/2)</option>
+                        </select>
+                        <small>Independent of the host protocol. Disable target TLS for H2C.</small>
+                    </div>
                     <!-- Advance configs -->
                     <div class="ui basic segment advanceoptions">
                         <div id="advanceProxyRules" class="ui fluid accordion">
@@ -267,6 +275,7 @@
                 "domain":targetDomain,
                 "reqTLS":reqTLS,
                 "skipValid":skipTLSValidation,
+                "upstreamProtocol": $("#vdUpstreamProtocol").val(),
             },
             success: function(data){
                 if (data.error != undefined){
@@ -286,6 +295,7 @@
 
     //Reset the vdir form
     function resetVdirForm(){
+        $("#vdUpstreamProtocol").val("http");
         $("#virtualDirectoryPath").val("");
         $("#virtualDirectoryDomain").val("");
         $("#vdReqTls").parent().checkbox("set unchecked");
@@ -347,6 +357,7 @@
                 }
 
                 input = `
+                    <select class="UpstreamProtocol"><option value="http">HTTP / HTTPS</option><option value="h2c" ${payload.UpstreamProtocol === "h2c" ? "selected" : ""}>H2C (cleartext HTTP/2)</option></select>
                     <div class="ui mini fluid input">
                         <input type="text" class="Domain" value="${domain}">
                     </div>
@@ -398,6 +409,7 @@
                 "domain":newDomain,
                 "path":path,
                 "reqTLS":requireTLS,
+                "upstreamProtocol": $("#vdirList").find(".UpstreamProtocol").val(),
                 "skipValid": skipValidation
             },
             success: function(data){

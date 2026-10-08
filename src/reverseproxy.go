@@ -353,6 +353,7 @@ func ReverseProxyHandleAddEndpoint(w http.ResponseWriter, r *http.Request) {
 	endpoint = strings.TrimSpace(endpoint)
 
 	useTLS, _ := utils.PostBool(r, "tls")
+	upstreamProtocol, _ := utils.PostPara(r, "upstreamProtocol")
 
 	//Bypass global TLS value / allow direct access from port 80?
 	useBypassGlobalTLS, _ := utils.PostBool(r, "bypassGlobalTLS")
@@ -530,6 +531,7 @@ func ReverseProxyHandleAddEndpoint(w http.ResponseWriter, r *http.Request) {
 
 		//Generate a proxy endpoint object
 		thisProxyEndpoint := dynamicproxy.ProxyEndpoint{
+			UpstreamProtocol: upstreamProtocol,
 			//I/O
 			ProxyType:            dynamicproxy.ProxyTypeHost,
 			RootOrMatchingDomain: rootOrMatchingDomain,
@@ -630,6 +632,7 @@ func ReverseProxyHandleAddEndpoint(w http.ResponseWriter, r *http.Request) {
 
 		//Write the root options to file
 		rootRoutingEndpoint := dynamicproxy.ProxyEndpoint{
+			UpstreamProtocol:     upstreamProtocol,
 			ProxyType:            dynamicproxy.ProxyTypeRoot,
 			RootOrMatchingDomain: "/",
 			ActiveOrigins: []*loadbalance.Upstream{
@@ -834,6 +837,9 @@ func ReverseProxyHandleEditEndpoint(w http.ResponseWriter, r *http.Request) {
 	newProxyEndpoint.DisableAutoFallback = disableAutoFallback
 	newProxyEndpoint.DisableChunkedTransferEncoding = disableChunkedEncoding
 	newProxyEndpoint.ForceHTTP11 = forceHTTP11
+	if protocol, err := utils.PostPara(r, "upstreamProtocol"); err == nil {
+		newProxyEndpoint.UpstreamProtocol = protocol
+	}
 	newProxyEndpoint.DisableWebSocket = disableWebSocket
 	newProxyEndpoint.WebsocketTimeout = websocketTimeout
 	newProxyEndpoint.EnableTimeoutRefreshOnActivity = enableTimeoutRefreshOnActivity
@@ -850,7 +856,6 @@ func ReverseProxyHandleEditEndpoint(w http.ResponseWriter, r *http.Request) {
 		utils.SendErrorResponse(w, err.Error())
 		return
 	}
-	targetProxyEntry.Remove()
 	loadBalancer.ResetSessions()
 	dynamicProxyRouter.AddProxyRouteToRuntime(readyRoutingRule)
 
@@ -899,7 +904,6 @@ func ReverseProxyHandleSetTags(w http.ResponseWriter, r *http.Request) {
 		utils.SendErrorResponse(w, err.Error())
 		return
 	}
-	targetProxyEntry.Remove()
 	loadBalancer.ResetSessions()
 	dynamicProxyRouter.AddProxyRouteToRuntime(readyRoutingRule)
 
@@ -951,7 +955,6 @@ func ReverseProxyHandleAlias(w http.ResponseWriter, r *http.Request) {
 		utils.SendErrorResponse(w, err.Error())
 		return
 	}
-	targetProxyEntry.Remove()
 	dynamicProxyRouter.AddProxyRouteToRuntime(readyRoutingRule)
 
 	// Save it to file
@@ -1729,8 +1732,12 @@ func ReverseProxyToggleRuleSet(w http.ResponseWriter, r *http.Request) {
 		isEnabled = true
 	}
 
-	//Flip the enable and disabled tag state
+	// Flip the state without replacing ordinary HTTP pools.
 	targetProxyRule.Disabled = !isEnabled
+	if err := dynamicProxyRouter.ConfigureH2C(targetProxyRule); err != nil {
+		utils.SendErrorResponse(w, err.Error())
+		return
+	}
 	err = SaveReverseProxyConfig(targetProxyRule)
 	if err != nil {
 		utils.SendErrorResponse(w, "unable to save updated rule")
@@ -2331,13 +2338,6 @@ func HandleHostOverwrite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		//Remove the old endpoint
-		err = targetProxyEndpoint.Remove()
-		if err != nil {
-			utils.SendErrorResponse(w, err.Error())
-			return
-		}
-
 		//Add the newly prepared endpoint to runtime
 		err = dynamicProxyRouter.AddProxyRouteToRuntime(preparedEndpoint)
 		if err != nil {
@@ -2405,13 +2405,6 @@ func HandleHopByHop(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		//Remove the old endpoint
-		err = targetProxyEndpoint.Remove()
-		if err != nil {
-			utils.SendErrorResponse(w, err.Error())
-			return
-		}
-
 		//Add the newly prepared endpoint to runtime
 		err = dynamicProxyRouter.AddProxyRouteToRuntime(preparedEndpoint)
 		if err != nil {
@@ -2474,13 +2467,6 @@ func HandleUserAgent(w http.ResponseWriter, r *http.Request) {
 
 		//Spawn a new endpoint with updated dpcore
 		preparedEndpoint, err := dynamicProxyRouter.PrepareProxyRoute(newProxyEndpoint)
-		if err != nil {
-			utils.SendErrorResponse(w, err.Error())
-			return
-		}
-
-		//Remove the old endpoint
-		err = targetProxyEndpoint.Remove()
 		if err != nil {
 			utils.SendErrorResponse(w, err.Error())
 			return

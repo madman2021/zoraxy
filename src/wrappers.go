@@ -180,6 +180,11 @@ func GetUptimeTargetsFromReverseProxyRules(dp *dynamicproxy.Router) []*uptime.Ta
 				protocol = "https"
 			}
 
+			if target.UpstreamProtocol == "h2c" {
+				protocol = "h2c"
+				url = "http://" + strings.TrimPrefix(origin.OriginIpOrDomain, "http://")
+			}
+
 			//Add the root url
 			hostIdAndName := hostid
 			if isMultipleUpstreams {
@@ -203,6 +208,11 @@ func GetUptimeTargetsFromReverseProxyRules(dp *dynamicproxy.Router) []*uptime.Ta
 					url = "https://" + vdir.Domain
 					protocol = "https"
 				}
+				if vdir.UpstreamProtocol == "h2c" {
+					protocol = "h2c"
+					url = "http://" + strings.TrimPrefix(vdir.Domain, "http://")
+				}
+
 				//Add the root url
 				UptimeTargets = append(UptimeTargets, &uptime.Target{
 					ID:                hostid + vdir.MatchingPath,

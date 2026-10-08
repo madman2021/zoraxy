@@ -21,7 +21,13 @@ import (
 
 // Prepare proxy route generate a proxy handler service object for your endpoint
 func (router *Router) PrepareProxyRoute(endpoint *ProxyEndpoint) (*ProxyEndpoint, error) {
+	if err := endpoint.ValidateUpstreamProtocol(); err != nil {
+		return nil, err
+	}
 	for _, thisOrigin := range endpoint.ActiveOrigins {
+		if endpoint.UpstreamProtocol == "h2c" {
+			break
+		}
 		//Create the proxy routing handler
 		err := thisOrigin.StartProxy(endpoint.upstreamTLSServerName())
 		if err != nil {
@@ -34,6 +40,10 @@ func (router *Router) PrepareProxyRoute(endpoint *ProxyEndpoint) (*ProxyEndpoint
 
 	//Prepare proxy routing handler for each of the virtual directories
 	for _, vdir := range endpoint.VirtualDirectories {
+		if vdir.UpstreamProtocol == "h2c" {
+			vdir.parent = endpoint
+			continue
+		}
 		domain := vdir.Domain
 		if len(domain) == 0 {
 			//invalid vdir
@@ -79,25 +89,34 @@ func (router *Router) AddProxyRouteToRuntime(endpoint *ProxyEndpoint) error {
 	lookupHostname := strings.ToLower(endpoint.RootOrMatchingDomain)
 	if len(endpoint.ActiveOrigins) == 0 {
 		//There are no active origins. No need to check for ready
+		if err := router.ConfigureH2C(endpoint); err != nil {
+			return err
+		}
 		router.ProxyEndpoints.Store(lookupHostname, endpoint)
 		return nil
 	}
-	if !router.loadBalancer.UpstreamsReady(endpoint.ActiveOrigins) {
+	if endpoint.UpstreamProtocol != "h2c" && !router.loadBalancer.UpstreamsReady(endpoint.ActiveOrigins) {
 		//This endpoint is not prepared
 		return errors.New("proxy endpoint not ready. Use PrepareProxyRoute before adding to runtime")
 	}
 	// Push record into running subdomain endpoints
+	if err := router.ConfigureH2C(endpoint); err != nil {
+		return err
+	}
 	router.ProxyEndpoints.Store(lookupHostname, endpoint)
 	return nil
 }
 
 // Set given Proxy Route as Root. Call to PrepareProxyRoute before adding to runtime
 func (router *Router) SetProxyRouteAsRoot(endpoint *ProxyEndpoint) error {
-	if !router.loadBalancer.UpstreamsReady(endpoint.ActiveOrigins) {
+	if endpoint.UpstreamProtocol != "h2c" && !router.loadBalancer.UpstreamsReady(endpoint.ActiveOrigins) {
 		//This endpoint is not prepared
 		return errors.New("proxy endpoint not ready. Use PrepareProxyRoute before adding to runtime")
 	}
 	// Push record into running root endpoints
+	if err := router.ConfigureH2C(endpoint); err != nil {
+		return err
+	}
 	router.Root = endpoint
 	return nil
 }

@@ -84,6 +84,7 @@ func ReverseProxyAddVdir(w http.ResponseWriter, r *http.Request) {
 	//Assume false if not given
 	reqTLS, _ := utils.PostBool(r, "reqTLS")
 	skipValid, _ := utils.PostBool(r, "skipValid")
+	upstreamProtocol, _ := utils.PostPara(r, "upstreamProtocol")
 
 	//Load the target proxy endpoint from runtime
 	var targetProxyEndpoint *dynamicproxy.ProxyEndpoint
@@ -119,6 +120,7 @@ func ReverseProxyAddVdir(w http.ResponseWriter, r *http.Request) {
 		Domain:              domain,
 		RequireTLS:          reqTLS,
 		SkipCertValidations: skipValid,
+		UpstreamProtocol:    upstreamProtocol,
 	}
 
 	//Add Virtual Directory Rule to this Proxy Endpoint
@@ -214,6 +216,7 @@ func ReverseProxyEditVdir(w http.ResponseWriter, r *http.Request) {
 	//Assume false if not given
 	reqTLS, _ := utils.PostBool(r, "reqTLS")
 	skipValid, _ := utils.PostBool(r, "skipValid")
+	upstreamProtocol, _ := utils.PostPara(r, "upstreamProtocol")
 
 	var targetEndpoint *dynamicproxy.ProxyEndpoint
 	if eptype == "root" {
@@ -245,15 +248,21 @@ func ReverseProxyEditVdir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Older API clients omit the protocol field; preserve the existing choice.
+	if _, err := utils.PostPara(r, "upstreamProtocol"); err != nil {
+		upstreamProtocol = targetEndpoint.GetVirtualDirectoryRuleByMatchingPath(vdir).UpstreamProtocol
+	}
 	//Overwrite the target endpoint
 	newVdirRule := dynamicproxy.VirtualDirectoryEndpoint{
 		MatchingPath:        vdir,
 		Domain:              domain,
 		RequireTLS:          reqTLS,
 		SkipCertValidations: skipValid,
+		UpstreamProtocol:    upstreamProtocol,
 		Disabled:            false,
 	}
 
+	targetEndpoint = targetEndpoint.CloneWithParent()
 	targetEndpoint.RemoveVirtualDirectoryRuleByMatchingPath(vdir)
 	activatedProxyEndpoint, err := targetEndpoint.AddVirtualDirectoryRule(&newVdirRule)
 	if err != nil {

@@ -204,6 +204,9 @@ func (router *Router) StartProxyService() error {
 		return errors.New("reverse proxy router root not set")
 	}
 
+	if err := router.startH2C(); err != nil {
+		return err
+	}
 	minVersion := tls.VersionTLS12 //Default to TLS 1.2
 	if router.Option.MinTLSVersion != 0 {
 		minVersion = int(router.Option.MinTLSVersion)
@@ -453,6 +456,10 @@ func (router *Router) handleNonTLSRequest(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if sep.UpstreamProtocol == "h2c" {
+		proxyHandler.h2cRequest(w, r, sep, "origin:"+selectedUpstream.OriginIpOrDomain, selectedUpstream.OriginIpOrDomain, "")
+		return
+	}
 	if isWebSocketRequest(r) {
 		proxyHandler.hostWebSocketRequest(w, r, sep, selectedUpstream)
 		return
@@ -654,6 +661,7 @@ func (router *Router) StopProxyService() error {
 		return errors.New("reverse proxy server already stopped")
 	}
 
+	router.h2c.Close()
 	var wg sync.WaitGroup
 
 	// Stop main TLS/HTTP server

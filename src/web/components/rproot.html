@@ -57,6 +57,15 @@
                         <small>e.g. localhost:8080 / 192.168.0.100:80 / example.com</small>
                 </div>
                 <div class="field">
+                    <label>Upstream protocol</label>
+                    <select id="rootUpstreamProtocol">
+                        <option value="http">HTTP / HTTPS</option>
+                        <option value="h2c">H2C (cleartext HTTP/2)</option>
+                    </select>
+                    <small>H2C requires target TLS to be disabled.</small>
+                </div>
+
+                <div class="field">
                     <div class="ui checkbox">
                         <input type="checkbox" id="rootReqTLS">
                         <label>Reverse proxy target require TLS connection <br><small>Check this if your proxy target URL require connection with https://</small></label>
@@ -142,6 +151,7 @@
                 }else if (proxyType == 1){
                     $radios.filter('[value=proxy]').prop('checked', true);
                     $("#proxyRoot").val(data.DefaultSiteValue);
+                    $("#rootUpstreamProtocol").val(data.UpstreamProtocol || "http");
                 }else if (proxyType == 2){
                     $radios.filter('[value=redirect]').prop('checked', true);
                     $("#redirectDomain").val(data.DefaultSiteValue);
@@ -248,7 +258,8 @@
             url: "/api/proxy/add",
             data: {
                 "type": "root", 
-                "tls": rootReqTls, 
+                "tls": rootReqTls,
+                "upstreamProtocol": currentDefaultSiteOption === 1 ? $("#rootUpstreamProtocol").val() : "http",
                 "ep": newpr,
                 "defaultSiteOpt": currentDefaultSiteOption,
                 "defaultSiteVal":defaultSiteValue,

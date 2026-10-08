@@ -49,6 +49,14 @@
                             <label>Proxy Target require TLS Connection <br><small>(i.e. Your proxy target starts with https://)</small></label>
                         </div>
                     </div>
+                    <div class="field">
+                        <label>Upstream protocol</label>
+                        <select id="newUpstreamProtocol">
+                            <option value="http">HTTP / HTTPS</option>
+                            <option value="h2c">H2C (cleartext HTTP/2)</option>
+                        </select>
+                        <small>Applies to every upstream for this host. For H2C, leave upstream TLS, CONNECT and upgrade forwarding disabled.</small>
+                    </div>
                     <!-- Advance configs -->
                     <div class="ui basic segment advanceoptions">
                         <div id="advanceProxyRules" class="ui fluid accordion">
@@ -384,7 +392,8 @@
             data: {
                 type: "host",
                 rootname: rootname, 
-                tls: useTLS, 
+                tls: useTLS,
+                upstreamProtocol: $("#newUpstreamProtocol").val(),
                 ep: proxyDomain,
                 tlsval: skipTLSValidation,
                 bpwsorg: skipWebSocketOriginCheck,
